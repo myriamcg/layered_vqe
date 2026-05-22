@@ -10,4 +10,30 @@
 10) report and presentation
 
 
+## Getting Started
 
+### Prerequisites
+- Python 3.12 ([download here](https://www.python.org/downloads/))
+
+### Installation
+
+1. Clone the repository
+
+2. Create a virtual environment
+```bash
+   python3.12 -m venv venv
+```
+
+3. Activate the virtual environment
+```bash
+   # macOS/Linux
+   source venv/bin/activate
+
+   # Windows
+   venv\Scripts\activate
+```
+
+4. Install dependencies
+```bash
+   pip install -r requirements.txt
+```
