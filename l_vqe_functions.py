@@ -2,7 +2,7 @@ import math
 import itertools
 from dataclasses import dataclass, field
 from tabnanny import verbose
-from typing import Optional
+from typing import Optional, Callable
 
 import numpy as np
 import networkx as nx
@@ -174,6 +174,8 @@ def simulate_one_lvqe(
     shots: Optional[int],
     max_iter_per_layer: int,
     rng: np.random.Generator,
+    optimizer: str = "cobyla",
+    re_estimate_interval: int = 32,
 ) -> dict:
     """
     Execute one full L-VQE run (one random seed).
@@ -207,15 +209,25 @@ def simulate_one_lvqe(
         # (the paper says "update all parameters until convergence" at the end).
         max_it = max_iter_per_layer if layer < max_layers else max_iter_per_layer * 3
 
-        result = minimize(
-            objective,
-            flat_params,
-            method="COBYLA",
-            options={"maxiter": max_it, "disp": False},
-        )
-        flat_params = result.x
+        if optimizer == "smo":
+            flat_params = _smo_optimize(
+                objective,
+                flat_params,
+                max_iter_per_layer=max_it,
+                re_estimate_interval=re_estimate_interval,
+            )
+            final_layer_cost = objective(flat_params)
+            print(f"cost = {final_layer_cost:.6f}")
+        else:
+            result = minimize(
+                objective,
+                flat_params,
+                method="COBYLA",
+                options={"maxiter": max_it, "disp": False},
+            )
+            flat_params = result.x
 
-        print(f"cost = {result.fun:.6f}")
+            print(f"cost = {result.fun:.6f}")
 
         if layer < max_layers:
             flat_params = _expand_params(flat_params, n_q)
@@ -227,3 +239,41 @@ def simulate_one_lvqe(
         "final_cost": final_cost,
         "final_params": flat_params,
     }
+
+def _smo_optimize(
+        cost_fn: Callable[[np.ndarray], float],
+        params: np.ndarray,
+        max_iter_per_layer: int,
+        re_estimate_interval: int) -> np.ndarray:
+    
+    params = params.copy()
+    J = len(params)
+    step = 0
+ 
+    for _ in range(max_iter_per_layer):
+        for j in range(J):
+            theta_j = params[j]
+ 
+            L0 = cost_fn(params)
+ 
+            params[j] = theta_j + np.pi / 2
+            L_plus = cost_fn(params)
+ 
+            params[j] = theta_j - np.pi / 2
+            L_minus = cost_fn(params)
+ 
+            diff_pm = L_plus - L_minus
+            diff_0  = 2 * L0 - L_plus - L_minus
+ 
+            # a1 = 0.5 * np.sqrt(diff_pm ** 2 + diff_0 ** 2)
+            a2 = theta_j - np.arctan2(diff_0, diff_pm)
+ 
+            theta_new = (a2 + np.pi) % (2 * np.pi)
+            params[j] = theta_new
+ 
+            step += 1
+ 
+            if step % re_estimate_interval == 0:
+                _ = cost_fn(params)
+ 
+    return params
