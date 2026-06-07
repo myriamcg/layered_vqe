@@ -133,13 +133,14 @@ def _apply_L1(params, n_q):
         _apply_entangling_block(params[idx : idx + 4], i, i + 1)
         idx += 4
 
-def apply_lvqe_circuit(params_flat, n_q, n_layers):
+def apply_lvqe_circuit(params_flat, n_q, n_layers, no_entanglement=False):
     """The core L-VQE hardware-efficient ansatz."""
     _apply_L0(params_flat[:n_q], n_q)
     idx = n_q
     params_per_layer = 4 * (n_q - 1)
+    layer_fn = _apply_L1_no_entanglement if no_entanglement else _apply_L1
     for _ in range(n_layers):
-        _apply_L1(params_flat[idx : idx + params_per_layer], n_q)
+        layer_fn(params_flat[idx : idx + params_per_layer], n_q)
         idx += params_per_layer
 
 def _flat_param_size(n_q: int, n_layers: int) -> int:
@@ -221,7 +222,8 @@ def simulate_one_lvqe(
     max_iter_per_layer: int,
     rng: np.random.Generator,
     device_name: str = "default.qubit",
-    optimizer: str = "COBYLA"
+    optimizer: str = "COBYLA",
+    no_entanglement=False
 ) -> dict:
     """
     Executes one full L-VQE run.
@@ -233,7 +235,7 @@ def simulate_one_lvqe(
 
     @qml.qnode(dev)
     def cost_fn(flat_params, n_layers):
-        apply_lvqe_circuit(flat_params, n_q, n_layers)
+        apply_lvqe_circuit(flat_params, n_q, n_layers, no_entanglement)
         return qml.expval(H)
 
     cost_history = []
@@ -423,3 +425,31 @@ def simulate_one_lvqe_fixed_budget(
         "final_cost": final_cost,
         "final_params": flat_params,
     }
+
+# ---------------------------------------------------------
+# NO ENTANGLEMENT
+# ---------------------------------------------------------
+
+def _apply_entangling_block_no_entanglement(params, w1, w2):
+    """
+    replaces CNOT with T gates.
+    T gates are single-qubit
+    """
+    qml.T(wires=w1)
+    qml.T(wires=w2)
+    qml.RY(params[0], wires=w1)
+    qml.RY(params[1], wires=w2)
+    qml.T(wires=w1)
+    qml.T(wires=w2)
+    qml.RY(params[2], wires=w1)
+    qml.RY(params[3], wires=w2)
+
+
+def _apply_L1_no_entanglement(params, n_q):
+    idx = 0
+    for i in range(0, n_q - 1, 2):
+        _apply_entangling_block_no_entanglement(params[idx : idx + 4], i, i + 1)
+        idx += 4
+    for i in range(1, n_q - 1, 2):
+        _apply_entangling_block_no_entanglement(params[idx : idx + 4], i, i + 1)
+        idx += 4
