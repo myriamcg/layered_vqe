@@ -133,13 +133,14 @@ def _apply_L1(params, n_q):
         _apply_entangling_block(params[idx : idx + 4], i, i + 1)
         idx += 4
 
-def apply_lvqe_circuit(params_flat, n_q, n_layers):
+def apply_lvqe_circuit(params_flat, n_q, n_layers, no_entanglement=False):
     """The core L-VQE hardware-efficient ansatz."""
     _apply_L0(params_flat[:n_q], n_q)
     idx = n_q
     params_per_layer = 4 * (n_q - 1)
+    layer_fn = _apply_L1_no_entanglement if no_entanglement else _apply_L1
     for _ in range(n_layers):
-        _apply_L1(params_flat[idx : idx + params_per_layer], n_q)
+        layer_fn(params_flat[idx : idx + params_per_layer], n_q)
         idx += params_per_layer
 
 def _flat_param_size(n_q: int, n_layers: int) -> int:
@@ -221,7 +222,8 @@ def simulate_one_lvqe(
     max_iter_per_layer: int,
     rng: np.random.Generator,
     device_name: str = "default.qubit",
-    optimizer: str = "COBYLA"
+    optimizer: str = "COBYLA",
+    no_entanglement=False
 ) -> dict:
     """
     Executes one full L-VQE run.
@@ -233,7 +235,7 @@ def simulate_one_lvqe(
 
     @qml.qnode(dev)
     def cost_fn(flat_params, n_layers):
-        apply_lvqe_circuit(flat_params, n_q, n_layers)
+        apply_lvqe_circuit(flat_params, n_q, n_layers, no_entanglement)
         return qml.expval(H)
 
     cost_history = []
@@ -345,3 +347,109 @@ def simulate_one_qaoa(
         "final_cost": result.fun,
         "final_params": result.x.reshape((2, p_steps)),
     }
+
+# ---------------------------------------------------------
+# FIXED BUDGET LVQE (For VQE v/s LVQE analysis) 
+# ---------------------------------------------------------
+def simulate_one_lvqe_fixed_budget(
+    n_q: int,
+    H: qml.Hamiltonian,
+    max_layers: int,
+    shots: int | None,
+    total_budget: int,
+    warm_start_iters: int,
+    rng: np.random.Generator,
+    device_name: str = "default.qubit",
+    optimizer: str = "SMO"
+) -> dict:
+    """
+    Executes one full L-VQE run with a strict global evaluation budget.
+    Early layers use 'warm_start_iters' (e.g., 200) to find the basin.
+    The final layer consumes the entire remaining budget for convergence.
+    """
+    dev = qml.device(device_name, wires=n_q, shots=shots)
+
+    @qml.qnode(dev)
+    def cost_fn(flat_params, n_layers):
+        apply_lvqe_circuit(flat_params, n_q, n_layers)
+        return qml.expval(H)
+
+    cost_history = []
+    flat_params = _initial_flat_params(n_q, 0, rng)
+
+    for layer in range(max_layers + 1):
+        print(f"  Layer {layer}  ({len(flat_params)} params) ...", end=" ")
+
+        def objective(p, _layer=layer):
+            val = float(cost_fn(p, _layer))
+            cost_history.append(val)
+            return val
+
+        # --- THE EXACT PAPER ALGORITHM ---
+        if layer < max_layers:
+            # Step 2 & 5: Stop early (before convergence)
+            max_it = warm_start_iters 
+        else:
+            # Step 7: Dump the remaining budget into the final convergence
+            max_it = total_budget - len(cost_history)
+            
+            # Failsafe in case early layers somehow exceeded the budget
+            if max_it <= 0: 
+                print("Budget exhausted early.")
+                break 
+
+        # Execute Optimizer
+        if optimizer.upper() == "SMO":
+            flat_params = sequential_minimal_optimization(objective, flat_params, max_evals=max_it)
+            final_cost = cost_history[-1]
+        else:
+            result = minimize(
+                objective,
+                flat_params,
+                method="COBYLA",
+                options={"maxiter": max_it, "disp": False},
+            )
+            flat_params = result.x
+            final_cost = result.fun
+
+        print(f"cost = {final_cost:.6f} | Total Evals So Far: {len(cost_history)}")
+
+        if layer < max_layers:
+            flat_params = _expand_params(flat_params, n_q)
+
+    # Ensure we return the absolute final calculated state
+    final_cost = float(cost_fn(flat_params, max_layers))
+
+    return {
+        "cost_history": cost_history,
+        "final_cost": final_cost,
+        "final_params": flat_params,
+    }
+
+# ---------------------------------------------------------
+# NO ENTANGLEMENT
+# ---------------------------------------------------------
+
+def _apply_entangling_block_no_entanglement(params, w1, w2):
+    """
+    replaces CNOT with T gates.
+    T gates are single-qubit
+    """
+    qml.T(wires=w1)
+    qml.T(wires=w2)
+    qml.RY(params[0], wires=w1)
+    qml.RY(params[1], wires=w2)
+    qml.T(wires=w1)
+    qml.T(wires=w2)
+    qml.RY(params[2], wires=w1)
+    qml.RY(params[3], wires=w2)
+
+
+def _apply_L1_no_entanglement(params, n_q):
+    idx = 0
+    for i in range(0, n_q - 1, 2):
+        _apply_entangling_block_no_entanglement(params[idx : idx + 4], i, i + 1)
+        idx += 4
+    for i in range(1, n_q - 1, 2):
+        _apply_entangling_block_no_entanglement(params[idx : idx + 4], i, i + 1)
+        idx += 4
