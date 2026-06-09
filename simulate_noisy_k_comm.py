@@ -1,7 +1,7 @@
 from qiskit_ibm_runtime import QiskitRuntimeService
 
 QiskitRuntimeService.save_account(
-    token="24cUlUsTEM71V8IYkfTu9EG-3fUSXuK3kYug4yWVTFWX",  # Use the 44-character API_KEY you created and saved from the IBM Quantum Platform Home dashboard
+    token="",  # Use the 44-character API_KEY you created and saved from the IBM Quantum Platform Home dashboard
     # instance="<CRN>"
     # , # Optional
     overwrite=True,  # Optional, overwrite existing saved account with the same name
@@ -24,8 +24,9 @@ CSV_PATH = "lvqe_results_noisy_k_comm.csv"
 K = 4
 MAX_LAYERS = 2
 SHOTS = 2000
-MAX_ITER = 200
-OPTIMIZER = "SMO"
+MAX_ITER = 30
+# OPTIMIZER = "SMO"
+OPTIMIZER = "COBYLA"
 
 if __name__ == "__main__":
     # print(dir(c))
