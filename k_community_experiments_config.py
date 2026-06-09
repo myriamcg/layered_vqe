@@ -84,6 +84,8 @@ def run_lvqe_experiment(
     max_iter_per_layer: int = 200,
     n_seeds: int = 10,
     random_seed: Optional[int] = None,
+    optimizer: str = "cobyla",
+    device_name="lightning.qubit",
 ) -> ExperimentResults:
     """
     Run the full L-VQE k-community detection experiment for more seeds as described in the paper.
@@ -135,6 +137,8 @@ def run_lvqe_experiment(
             shots=shots,
             max_iter_per_layer=max_iter_per_layer,
             rng=child_rng,
+            optimizer=optimizer,
+            device_name=device_name,
         )
         cost_per_seed.append(seed_result["final_cost"])
         all_histories.append(seed_result["cost_history"])
