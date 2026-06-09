@@ -295,6 +295,29 @@ def _pl_hamiltonian_to_sparse_pauli(H: qml.Hamiltonian, n_q: int) -> SparsePauli
     return SparsePauliOp.from_list(terms)
 
 
+from qiskit.circuit import ParameterVector
+
+
+def _build_parametrized_qiskit_circuit(n_q, n_layers, no_entanglement):
+    """Build a parametrized Qiskit circuit once, to be bound with values later."""
+    n_params = _flat_param_size(n_q, n_layers)
+    params = ParameterVector("θ", n_params)
+
+    dev_temp = qml.device("default.qubit", wires=n_q)
+    # Use dummy values to get the circuit structure
+    dummy = np.zeros(n_params)
+
+    @qml.qnode(dev_temp)
+    def pl_circuit():
+        apply_lvqe_circuit(dummy, n_q, n_layers, no_entanglement)
+        return qml.state()
+
+    pl_circuit.construct([], {})
+    tape = pl_circuit._tape
+    qc = circuit_to_qiskit(tape, register_size=n_q)
+    return qc, dummy  # structure only, values are baked in as zeros
+
+
 def simulate_one_lvqe(
     n_q: int,
     H: qml.Hamiltonian,
@@ -320,20 +343,32 @@ def simulate_one_lvqe(
 
         qiskit_op = _pl_hamiltonian_to_sparse_pauli(H, n_q)
         pm = generate_preset_pass_manager(optimization_level=3, backend=backend)
-        estimator = EstimatorV2(mode=backend)  # <-- pass backend directly, no Session
+        estimator = EstimatorV2(mode=backend)
+
+        # Cache: maps n_layers -> (transpiled_circuit, mapped_observable)
+        _circuit_cache = {}
 
         def cost_fn(flat_params, n_layers):
-            qc = _build_qiskit_circuit(flat_params, n_q, n_layers, no_entanglement)
-            qc_t = pm.run(qc)
+            if n_layers not in _circuit_cache:
+                qc = _build_qiskit_circuit(flat_params, n_q, n_layers, no_entanglement)
+                qc_t = pm.run(qc)
+                qiskit_op_mapped = qiskit_op.apply_layout(qc_t.layout)
+                # Save the layout, not the transpiled circuit (params are baked in)
+                _circuit_cache[n_layers] = (qc_t.layout, qiskit_op_mapped)
 
-            # apply_layout maps the 14-qubit observable onto the 156-qubit chip layout
-            qiskit_op_mapped = qiskit_op.apply_layout(qc_t.layout)
+            layout, qiskit_op_mapped = _circuit_cache[n_layers]
 
-            pub = (qc_t, qiskit_op_mapped)
+            # Rebuild circuit with current params and apply the cached layout
+            qc_current = _build_qiskit_circuit(
+                flat_params, n_q, n_layers, no_entanglement
+            )
+            qc_current_t = pm.run(qc_current)  # still needs transpiling for gate basis
+
+            pub = (qc_current_t, qiskit_op_mapped)
             result = estimator.run([pub]).result()
             val = float(result[0].data.evs)
-            print("IBM eval", val)
-            return float(result[0].data.evs)
+            print(f"  IBM eval → {val:.6f}")
+            return val
 
     else:
         dev = qml.device(device_name, wires=n_q, shots=shots)

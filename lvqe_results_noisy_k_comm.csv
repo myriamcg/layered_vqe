@@ -1,1 +1,2 @@
 n_nodes,k,max_layers,shots,max_iter_per_layer,n_qubits,C_bkv,final_cost,modularity,rho,optimizer
+7,4,2,2000,15,14,0.13223140495867766,-0.09480165289256204,0.09480165289256204,0.7169375000000006,COBYLA
