@@ -311,6 +311,61 @@ def simulate_one_lvqe(
     }
 
 
+def simulate_one_lvqe_with_device(
+    n_q, H, max_layers, shots, max_iter_per_layer, rng, optimizer="COBYLA", dev=None
+):
+    """
+    Identical to simulate_one_lvqe but accepts an externally built device.
+    Useful for injecting Aer noise models without touching the core engine.
+    """
+    if dev is None:
+        dev = qml.device("lightning.qubit", wires=n_q, shots=shots)
+
+    @qml.qnode(dev)
+    def cost_fn(flat_params, n_layers):
+        apply_lvqe_circuit(flat_params, n_q, n_layers)
+        return qml.expval(H)
+
+    cost_history = []
+    flat_params = _initial_flat_params(n_q, 0, rng)
+
+    for layer in range(max_layers + 1):
+        print(f"  Layer {layer}  ({len(flat_params)} params) ...", end=" ")
+
+        def objective(p, _layer=layer):
+            val = float(cost_fn(p, _layer))
+            cost_history.append(val)
+            return val
+
+        max_it = max_iter_per_layer if layer < max_layers else max_iter_per_layer * 3
+
+        if optimizer.upper() == "SMO":
+            flat_params = sequential_minimal_optimization(
+                objective, flat_params, max_evals=max_it
+            )
+            final_cost = objective(flat_params)
+        else:
+            result = minimize(
+                objective,
+                flat_params,
+                method="COBYLA",
+                options={"maxiter": max_it, "disp": False},
+            )
+            flat_params = result.x
+            final_cost = result.fun
+
+        print(f"cost = {final_cost:.6f}")
+        if layer < max_layers:
+            flat_params = _expand_params(flat_params, n_q)
+
+    final_cost = float(cost_fn(flat_params, max_layers))
+    return {
+        "cost_history": cost_history,
+        "final_cost": final_cost,
+        "final_params": flat_params,
+    }
+
+
 # VQE engine
 
 
@@ -370,6 +425,55 @@ def simulate_one_vqe(
 
         # fair_comparison_final_cost = float(cost_fn(flat_params))
 
+    return {
+        "cost_history": cost_history,
+        "final_cost": float(final_cost),
+        "final_params": flat_params,
+    }
+
+
+def simulate_one_vqe_with_device(
+    n_q: int,
+    H: qml.Hamiltonian,
+    n_layers: int,
+    shots: Optional[int],
+    max_evals: int,
+    rng: np.random.Generator,
+    dev,  # pre-built noisy device
+    optimizer: str = "COBYLA",
+) -> dict:
+    """VQE variant that accepts a pre-built device (mirrors lvqe wrapper)."""
+
+    @qml.qnode(dev)
+    def cost_fn(flat_params):
+        apply_lvqe_circuit(flat_params, n_q, n_layers)
+        return qml.expval(H)
+
+    total_params = _flat_param_size(n_q, n_layers)
+    flat_params = rng.uniform(0, 2 * np.pi, size=total_params)
+    cost_history = []
+
+    def objective(p):
+        val = float(cost_fn(p))
+        cost_history.append(val)
+        return val
+
+    if optimizer.upper() == "SMO":
+        flat_params = sequential_minimal_optimization(
+            objective, flat_params, max_evals=max_evals
+        )
+        final_cost = objective(flat_params)
+    else:
+        result = minimize(
+            objective,
+            flat_params,
+            method="COBYLA",
+            options={"maxiter": max_evals, "disp": False},
+        )
+        flat_params = result.x
+        final_cost = result.fun
+
+    print(f"  Final VQE Cost: {final_cost:.6f}")
     return {
         "cost_history": cost_history,
         "final_cost": float(final_cost),
