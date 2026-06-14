@@ -631,6 +631,7 @@ def simulate_one_lvqe_fixed_budget(
     rng: np.random.Generator,
     device_name: str = "default.qubit",
     optimizer: str = "SMO",
+    no_entanglement=False,
 ) -> dict:
     """
     Executes one full L-VQE run with a strict global evaluation budget.
@@ -641,7 +642,7 @@ def simulate_one_lvqe_fixed_budget(
 
     @qml.qnode(dev)
     def cost_fn(flat_params, n_layers):
-        apply_lvqe_circuit(flat_params, n_q, n_layers)
+        apply_lvqe_circuit(flat_params, n_q, n_layers, no_entanglement)
         return qml.expval(H)
 
     cost_history = []
