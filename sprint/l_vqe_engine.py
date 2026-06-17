@@ -5,11 +5,11 @@ from typing import Optional, List, Tuple
 import numpy as np
 import networkx as nx
 import pennylane as qml
+from pennylane import qaoa
 from scipy.optimize import minimize
 
-# ---------------------------------------------------------
-# 1. HAMILTONIAN BUILDERS
-# ---------------------------------------------------------
+
+# HAMILTONIAN BUILDERS
 
 
 def n_bits(k: int) -> int:
@@ -78,9 +78,7 @@ def build_maxcut_hamiltonian(graph: nx.Graph) -> qml.Hamiltonian:
     return qml.Hamiltonian(coeffs, observables)
 
 
-# ---------------------------------------------------------
-# 2. CLASSICAL BENCHMARKS (BRUTE FORCE)
-# ---------------------------------------------------------
+# CLASSICAL BENCHMARKS (BRUTE FORCE)
 
 
 def best_known_community_cost(
@@ -125,9 +123,7 @@ def best_known_maxcut_cost(
     return -float(max_cut_val)  # Return negative because VQE minimizes
 
 
-# ---------------------------------------------------------
-# 3. QUANTUM CIRCUIT (L-VQE ANSATZ)
-# ---------------------------------------------------------
+# QUANTUM CIRCUIT (L-VQE ANSATZ)
 
 
 def _apply_L0(params, n_q):
@@ -181,9 +177,7 @@ def _expand_params(flat_params: np.ndarray, n_q: int) -> np.ndarray:
     return np.concatenate([flat_params, np.zeros(4 * (n_q - 1))])
 
 
-# ---------------------------------------------------------
-# 4. CUSTOM OPTIMIZERS
-# ---------------------------------------------------------
+# CUSTOM OPTIMIZERS
 
 
 def sequential_minimal_optimization(
@@ -205,43 +199,34 @@ def sequential_minimal_optimization(
 
             theta_j = params[j]
 
-            # 1. Evaluate at theta
             L0 = objective_fn(params)
             eval_count += 1
             if eval_count >= max_evals:
                 return params
 
-            # 2. Evaluate at theta + pi/2
             params[j] = theta_j + np.pi / 2
             L_plus = objective_fn(params)
             eval_count += 1
             if eval_count >= max_evals:
                 return params
 
-            # 3. Evaluate at theta - pi/2
             params[j] = theta_j - np.pi / 2
             L_minus = objective_fn(params)
             eval_count += 1
 
-            # 4. The Corrected Mathematical Minimum
             diff_pm = L_plus - L_minus
             diff_0 = 2 * L0 - L_plus - L_minus
 
-            # Calculate the true phase phi using correctly ordered (a, b) coordinates
             phi = np.arctan2(diff_pm, diff_0)
 
-            # The exact global minimum of this parameter's sine wave is always phi - pi
             theta_new = theta_j + phi - np.pi
 
-            # Wrap to [0, 2pi] to keep the parameter space clean
             params[j] = theta_new % (2 * np.pi)
 
     return params
 
 
-# ---------------------------------------------------------
-# 5. THE EXECUTION ENGINE
-# ---------------------------------------------------------
+# L-VQE ENGINE
 
 
 def simulate_one_lvqe(
@@ -260,7 +245,6 @@ def simulate_one_lvqe(
     Supports dynamic device injection (lightning.qubit, default.mixed, etc.)
     and toggling between COBYLA and SMO.
     """
-    # 1. Dynamic Device Instantiation
     dev = qml.device(device_name, wires=n_q, shots=shots)
 
     @qml.qnode(dev)
@@ -271,7 +255,6 @@ def simulate_one_lvqe(
     cost_history = []
     flat_params = _initial_flat_params(n_q, 0, rng)
 
-    # 2. Layer Expansion Loop
     for layer in range(max_layers + 1):
         print(f"  Layer {layer}  ({len(flat_params)} params) ...", end=" ")
 
@@ -280,10 +263,8 @@ def simulate_one_lvqe(
             cost_history.append(val)
             return val
 
-        # Layer 0 gets a fixed budget. Final layer gets an expanded budget.
         max_it = max_iter_per_layer if layer < max_layers else max_iter_per_layer * 3
 
-        # 3. Dynamic Optimizer Selection - SMO v/s COBYLA
         if optimizer.upper() == "SMO":
             flat_params = sequential_minimal_optimization(
                 objective, flat_params, max_evals=max_it
@@ -337,7 +318,6 @@ def simulate_one_vqe(
         apply_lvqe_circuit(flat_params, n_q, n_layers)
         return qml.expval(H)
 
-    # Standard VQE: initialize the full ansatz immediately
     total_params = _flat_param_size(n_q, n_layers)
     flat_params = rng.uniform(0, 2 * np.pi, size=total_params)
 
@@ -458,7 +438,6 @@ def simulate_one_vqe(
         apply_lvqe_circuit(flat_params, n_q, n_layers)
         return qml.expval(H)
 
-    # Standard VQE: initialize the full ansatz immediately
     total_params = _flat_param_size(n_q, n_layers)
     flat_params = rng.uniform(0, 2 * np.pi, size=total_params)
 
@@ -546,12 +525,7 @@ def simulate_one_vqe_with_device(
     }
 
 
-# Add this import to the top of your engine file if it isn't there
-from pennylane import qaoa
-
-# ---------------------------------------------------------
-# 6. QAOA EXECUTION ENGINE
-# ---------------------------------------------------------
+# QAOA Engine
 
 
 def build_mixing_hamiltonian(n_q: int) -> qml.Hamiltonian:
@@ -582,7 +556,6 @@ def simulate_one_qaoa(
 
     @qml.qnode(dev)
     def cost_fn(params):
-        # Initial state: Hadamard on all qubits
         for i in range(n_q):
             qml.Hadamard(wires=i)
 
@@ -590,10 +563,8 @@ def simulate_one_qaoa(
         qml.layer(qaoa_layer, p_steps, params[0], params[1])
         return qml.expval(H_cost)
 
-    # Initialize gammas and alphas randomly between [0, 2pi]
     initial_params = rng.uniform(0, 2 * np.pi, size=(2, p_steps))
 
-    # Flatten params for SciPy
     flat_initial = initial_params.flatten()
 
     cost_history = []
@@ -618,9 +589,9 @@ def simulate_one_qaoa(
     }
 
 
-# ---------------------------------------------------------
-# FIXED BUDGET LVQE (For VQE v/s LVQE analysis)
-# ---------------------------------------------------------
+# FIXED BUDGET LVQE (For VQE vs LVQE analysis)
+
+
 def simulate_one_lvqe_fixed_budget(
     n_q: int,
     H: qml.Hamiltonian,
@@ -656,20 +627,15 @@ def simulate_one_lvqe_fixed_budget(
             cost_history.append(val)
             return val
 
-        # --- THE EXACT PAPER ALGORITHM ---
         if layer < max_layers:
-            # Step 2 & 5: Stop early (before convergence)
             max_it = warm_start_iters
         else:
-            # Step 7: Dump the remaining budget into the final convergence
             max_it = total_budget - len(cost_history)
 
-            # Failsafe in case early layers somehow exceeded the budget
             if max_it <= 0:
                 print("Budget exhausted early.")
                 break
 
-        # Execute Optimizer
         if optimizer.upper() == "SMO":
             flat_params = sequential_minimal_optimization(
                 objective, flat_params, max_evals=max_it
@@ -690,7 +656,6 @@ def simulate_one_lvqe_fixed_budget(
         if layer < max_layers:
             flat_params = _expand_params(flat_params, n_q)
 
-    # Ensure we return the absolute final calculated state
     final_cost = float(cost_fn(flat_params, max_layers))
 
     return {
@@ -700,9 +665,7 @@ def simulate_one_lvqe_fixed_budget(
     }
 
 
-# ---------------------------------------------------------
 # NO ENTANGLEMENT
-# ---------------------------------------------------------
 
 
 def _apply_entangling_block_no_entanglement(params, w1, w2):
