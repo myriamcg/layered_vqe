@@ -197,45 +197,34 @@ def sequential_minimal_optimization(
     params = np.copy(initial_params)
     J = len(params)
     eval_count = 0
-
     while eval_count < max_evals:
         for j in range(J):
             if eval_count >= max_evals:
                 return params
-
             theta_j = params[j]
-
-            # 1. Evaluate at theta
+            # theta
             L0 = objective_fn(params)
             eval_count += 1
             if eval_count >= max_evals:
                 return params
-
-            # 2. Evaluate at theta + pi/2
+            # theta + pi/2
             params[j] = theta_j + np.pi / 2
             L_plus = objective_fn(params)
             eval_count += 1
             if eval_count >= max_evals:
                 return params
-
-            # 3. Evaluate at theta - pi/2
+            # theta - pi/2
             params[j] = theta_j - np.pi / 2
             L_minus = objective_fn(params)
             eval_count += 1
-
-            # 4. The Corrected Mathematical Minimum
+            # minimum
             diff_pm = L_plus - L_minus
             diff_0 = 2 * L0 - L_plus - L_minus
-
-            # Calculate the true phase phi using correctly ordered (a, b) coordinates
             phi = np.arctan2(diff_pm, diff_0)
-
-            # The exact global minimum of this parameter's sine wave is always phi - pi
+            # global minimum of this parameter's sine wave, always phi - pi
             theta_new = theta_j + phi - np.pi
-
-            # Wrap to [0, 2pi] to keep the parameter space clean
+            # [0, 2pi]
             params[j] = theta_new % (2 * np.pi)
-
     return params
 
 
