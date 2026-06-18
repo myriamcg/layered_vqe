@@ -387,7 +387,6 @@ def simulate_one_lvqe(
     # Layer Expansion Loop
     for layer in range(max_layers + 1):
         print(f"what {layer}")
-        # print(f"  Layer {layer}  ({len(flat_params)} params) ...", end=" ")
 
         def objective(p, _layer=layer):
             val = float(cost_fn(p, _layer))
