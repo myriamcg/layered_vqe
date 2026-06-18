@@ -417,6 +417,187 @@ def simulate_one_lvqe_with_device(
     }
 
 
+# ibm hardware code; convert circuit to qiskit circuit
+from qiskit.circuit import QuantumCircuit
+import pennylane as qml
+from pennylane_qiskit.converter import circuit_to_qiskit
+
+
+def _build_qiskit_circuit(flat_params, n_q, n_layers, no_entanglement):
+    dev_temp = qml.device("default.qubit", wires=n_q)
+
+    @qml.qnode(dev_temp)
+    def pl_circuit():
+        apply_lvqe_circuit(flat_params, n_q, n_layers, no_entanglement)
+        return qml.state()
+
+    pl_circuit.construct([], {})
+    tape = pl_circuit._tape
+
+    qc = circuit_to_qiskit(tape, register_size=n_q)
+    # Don't add measure_all() — EstimatorV2 handles measurements internally
+    return qc
+
+
+from qiskit.quantum_info import SparsePauliOp
+
+
+def _pl_hamiltonian_to_sparse_pauli(H: qml.Hamiltonian, n_q: int) -> SparsePauliOp:
+    """Convert a PennyLane Hamiltonian to a Qiskit SparsePauliOp."""
+    pauli_map = {"PauliX": "X", "PauliY": "Y", "PauliZ": "Z", "Identity": "I"}
+    terms = []
+
+    for coeff, op in zip(H.coeffs, H.ops):
+        pauli_str = ["I"] * n_q
+
+        # Tensor product of Paulis (e.g. X @ Z) — new PennyLane uses qml.ops.Prod
+        if isinstance(op, qml.ops.Prod):
+            for sub_op in op.operands:
+                wire = sub_op.wires[0]
+                pauli_str[wire] = pauli_map.get(type(sub_op).__name__, "I")
+        # Single Pauli
+        elif not isinstance(op, qml.Identity):
+            wire = op.wires[0]
+            pauli_str[wire] = pauli_map.get(type(op).__name__, "I")
+        # Identity → leave all "I"
+
+        # Qiskit uses reversed qubit ordering
+        terms.append(("".join(reversed(pauli_str)), float(coeff)))
+
+    return SparsePauliOp.from_list(terms)
+
+
+from qiskit.circuit import ParameterVector
+
+
+def _build_parametrized_qiskit_circuit(n_q, n_layers, no_entanglement):
+    """Build a parametrized Qiskit circuit once, to be bound with values later."""
+    n_params = _flat_param_size(n_q, n_layers)
+    params = ParameterVector("θ", n_params)
+
+    dev_temp = qml.device("default.qubit", wires=n_q)
+    # Use dummy values to get the circuit structure
+    dummy = np.zeros(n_params)
+
+    @qml.qnode(dev_temp)
+    def pl_circuit():
+        apply_lvqe_circuit(dummy, n_q, n_layers, no_entanglement)
+        return qml.state()
+
+    pl_circuit.construct([], {})
+    tape = pl_circuit._tape
+    qc = circuit_to_qiskit(tape, register_size=n_q)
+    return qc, dummy  # structure only, values are baked in as zeros
+
+
+def simulate_one_lvqe_ibm(
+    n_q: int,
+    H: qml.Hamiltonian,
+    max_layers: int,
+    shots: Optional[int],
+    max_iter_per_layer: int,
+    rng: np.random.Generator,
+    device_name: str = "default.qubit",
+    backend=None,
+    optimizer: str = "COBYLA",
+    no_entanglement: bool = False,
+) -> dict:
+    """
+    Executes one full L-VQE run.
+    Supports dynamic device injection (lightning.qubit, default.mixed, etc.)
+    and toggling between COBYLA and SMO.
+    """
+    use_ibm = (device_name == "qiskit.ibmq") and (backend is not None)
+
+    if use_ibm:
+        from qiskit_ibm_runtime import EstimatorV2
+        from qiskit.transpiler.preset_passmanagers import generate_preset_pass_manager
+
+        qiskit_op = _pl_hamiltonian_to_sparse_pauli(H, n_q)
+        pm = generate_preset_pass_manager(optimization_level=3, backend=backend)
+        estimator = EstimatorV2(mode=backend)
+
+        # Cache: maps n_layers -> (transpiled_circuit, mapped_observable)
+        _circuit_cache = {}
+
+        def cost_fn(flat_params, n_layers):
+            if n_layers not in _circuit_cache:
+                qc = _build_qiskit_circuit(flat_params, n_q, n_layers, no_entanglement)
+                qc_t = pm.run(qc)
+                qiskit_op_mapped = qiskit_op.apply_layout(qc_t.layout)
+                # Save the layout, not the transpiled circuit (params are baked in)
+                _circuit_cache[n_layers] = (qc_t.layout, qiskit_op_mapped)
+
+            layout, qiskit_op_mapped = _circuit_cache[n_layers]
+
+            # Rebuild circuit with current params and apply the cached layout
+            qc_current = _build_qiskit_circuit(
+                flat_params, n_q, n_layers, no_entanglement
+            )
+            qc_current_t = pm.run(qc_current)  # still needs transpiling for gate basis
+
+            pub = (qc_current_t, qiskit_op_mapped)
+            result = estimator.run([pub]).result()
+            val = float(result[0].data.evs)
+            print(f"  IBM eval → {val:.6f}")
+            return val
+
+    else:
+        dev = qml.device(device_name, wires=n_q, shots=shots)
+
+        @qml.qnode(dev)
+        def cost_fn_pl(flat_params, n_layers):
+            apply_lvqe_circuit(flat_params, n_q, n_layers, no_entanglement)
+            return qml.expval(H)
+
+        cost_fn = cost_fn_pl
+
+    cost_history = []
+    flat_params = _initial_flat_params(n_q, 0, rng)
+    print("started LVQE")
+
+    # Layer Expansion Loop
+    for layer in range(max_layers + 1):
+        print(f"what {layer}")
+
+        def objective(p, _layer=layer):
+            val = float(cost_fn(p, _layer))
+            cost_history.append(val)
+            return val
+
+        max_it = max_iter_per_layer if layer < max_layers else max_iter_per_layer * 3
+
+        if optimizer.upper() == "SMO":
+            print("if smo")
+            flat_params = sequential_minimal_optimization(
+                objective, flat_params, max_evals=max_it
+            )
+            print("after smo")
+            final_cost = objective(flat_params)
+        else:
+            result = minimize(
+                objective,
+                flat_params,
+                method="COBYLA",
+                options={"maxiter": max_it, "disp": False},
+            )
+            flat_params = result.x
+            final_cost = result.fun
+
+        print(f"cost = {final_cost:.6f}")
+
+        if layer < max_layers:
+            flat_params = _expand_params(flat_params, n_q)
+
+    final_cost = float(cost_fn(flat_params, max_layers))
+
+    return {
+        "cost_history": cost_history,
+        "final_cost": final_cost,
+        "final_params": flat_params,
+    }
+
+
 # VQE engine
 
 
