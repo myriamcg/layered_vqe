@@ -18,10 +18,19 @@ def n_bits(k: int) -> int:
 
 
 def total_qubits(n_nodes: int, k: int) -> int:
+    """Return the total number of qubits needed to encode all graph nodes.
+
+    Each graph node is assigned ceil(log2(k)) qubits, which encode the
+    community label of that node in binary.
+    """
     return n_nodes * n_bits(k)
 
 
 def qubit_index(bit: int, node: int, n_nodes: int) -> int:
+    """Map a logical binary variable to its physical qubit index.
+
+    The register is ordered by bit position first, then by graph node.
+    """
     return bit * n_nodes + node
 
 
@@ -86,6 +95,12 @@ def build_maxcut_hamiltonian(graph: nx.Graph) -> qml.Hamiltonian:
 def best_known_community_cost(
     graph: nx.Graph, k: int, max_brute_nodes: int = 12
 ) -> Optional[float]:
+    """Compute the best modularity value by brute force for small graphs.
+
+    This is used as a classical benchmark for the k-community detection
+    experiments. For larger graphs, the method returns None because checking
+    all k^n community assignments becomes infeasible.
+    """
     n = graph.number_of_nodes()
     if n > max_brute_nodes:
         return None
@@ -131,11 +146,17 @@ def best_known_maxcut_cost(
 
 
 def _apply_L0(params, n_q):
+    """Apply the initial layer of single-qubit RY rotations."""
     for i in range(n_q):
         qml.RY(params[i], wires=i)
 
 
 def _apply_entangling_block(params, w1, w2):
+    """Apply one two-qubit L-VQE block on neighbouring wires.
+
+    The block alternates CNOT gates with trainable RY rotations, creating
+    local entanglement between adjacent qubits.
+    """
     qml.CNOT(wires=[w1, w2])
     qml.RY(params[0], wires=w1)
     qml.RY(params[1], wires=w2)
@@ -145,6 +166,7 @@ def _apply_entangling_block(params, w1, w2):
 
 
 def _apply_L1(params, n_q):
+    """Apply one full entangling layer using an even-odd brickwork pattern."""
     idx = 0
     for i in range(0, n_q - 1, 2):
         _apply_entangling_block(params[idx : idx + 4], i, i + 1)
@@ -166,18 +188,25 @@ def apply_lvqe_circuit(params_flat, n_q, n_layers, no_entanglement=False):
 
 
 def _flat_param_size(n_q: int, n_layers: int) -> int:
+    """Return the number of trainable parameters for a given L-VQE depth."""
     return n_q + n_layers * 4 * (n_q - 1)
 
 
 def _initial_flat_params(
     n_q: int, n_layers: int, rng: np.random.Generator
 ) -> np.ndarray:
+    """Initialize parameters for the current circuit depth.
+
+    The first rotation layer is random, while newly added layers start at zero
+    so that layer expansion begins close to the previous optimized circuit.
+    """
     p = np.zeros(_flat_param_size(n_q, n_layers))
     p[:n_q] = rng.uniform(0, 2 * np.pi, size=n_q)
     return p
 
 
 def _expand_params(flat_params: np.ndarray, n_q: int) -> np.ndarray:
+    """Add one new zero-initialized L-VQE layer to an existing parameter vector."""
     return np.concatenate([flat_params, np.zeros(4 * (n_q - 1))])
 
 
@@ -368,6 +397,11 @@ def simulate_one_vqe(
 def simulate_one_lvqe_with_device(
     n_q, H, max_layers, shots, max_iter_per_layer, rng, optimizer="COBYLA", dev=None
 ):
+    """Run L-VQE on a user-provided PennyLane device.
+
+    This version is useful for noisy simulations because the device can be
+    constructed externally and passed into the function.
+    """
 
     if dev is None:
         dev = qml.device("lightning.qubit", wires=n_q, shots=shots)
@@ -424,6 +458,7 @@ from pennylane_qiskit.converter import circuit_to_qiskit
 
 
 def _build_qiskit_circuit(flat_params, n_q, n_layers, no_entanglement):
+    """Convert the current PennyLane L-VQE circuit into a Qiskit circuit."""
     dev_temp = qml.device("default.qubit", wires=n_q)
 
     @qml.qnode(dev_temp)
@@ -674,6 +709,11 @@ def simulate_one_vqe_with_device(
     dev,  # pre-built noisy device
     optimizer: str = "COBYLA",
 ) -> dict:
+    """Run fixed-depth VQE on a pre-built PennyLane device.
+
+    This is mainly used for fair noisy comparisons against L-VQE when both
+    algorithms should use the same external simulator or noise model.
+    """
 
     @qml.qnode(dev)
     def cost_fn(flat_params):
@@ -886,6 +926,7 @@ def _apply_entangling_block_no_entanglement(params, w1, w2):
 
 
 def _apply_L1_no_entanglement(params, n_q):
+    """Apply the non-entangling version of one L1 layer."""
     idx = 0
     for i in range(0, n_q - 1, 2):
         _apply_entangling_block_no_entanglement(params[idx : idx + 4], i, i + 1)

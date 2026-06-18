@@ -49,3 +49,6 @@ typing_extensions==4.15.0
 urllib3==2.7.0
 wheel==0.47.0
 wrapt==2.2.0
+qiskit==2.3.0
+qiskit-aer==0.17.2
+qiskit-ibm-runtime==0.45.1  

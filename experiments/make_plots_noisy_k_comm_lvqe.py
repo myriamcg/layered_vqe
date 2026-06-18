@@ -1,9 +1,7 @@
 import csv
 import matplotlib.pyplot as plt
 
-HISTORY_CSV = (
-    "csv_files/lvqe_noisy_k_comm.csv"  # your local file is named lvqe_noisy_k_comm.csv
-)
+HISTORY_CSV = "csv_files/lvqe_noisy_k_comm.csv"
 SUMMARY_CSV = "csv_files/lvqe_noisy_results.csv"
 TARGET_MAX_ITER_LAYER = 200  # the run you actually care about
 

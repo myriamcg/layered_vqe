@@ -3,9 +3,7 @@ import matplotlib.pyplot as plt
 
 HISTORY_CSV = "csv_files/vqe_noisy_k_comm.csv"
 SUMMARY_CSV = "csv_files/vqe_noisy_results_k_comm.csv"
-TARGET_FINAL_COST = (
-    -0.076563
-)  # from your printed "Final VQE Cost" -- identifies the run
+TARGET_FINAL_COST = -0.076563  # cost for the k community problem with the caveman graph
 
 # ---- 1. Load the full cost history (already single-run, since file is overwritten each time) ----
 steps, costs = [], []
@@ -73,13 +71,7 @@ ax.axhline(
     lw=1,
     label=f"true_baseline = {true_baseline:.4f}",
 )
-# ax.axhline(
-#     final_cost,
-#     color="#c53030",
-#     ls=":",
-#     lw=1.5,
-#     label=f"reported final_cost = {-final_cost:.4f}",
-# )
+
 
 ax.set_xlabel(
     f"Optimization step (single fixed-depth COBYLA run, n={n_total} evaluations)"
@@ -95,7 +87,6 @@ ax.grid(alpha=0.25)
 
 textstr = (
     f"true_baseline = {true_baseline:.4f}\n"
-    # f"final_cost = {final_cost:.4f}\n"
     f"noisy_modularity = {noisy_mod:.4f}\n"
     f"approx_ratio = {approx_ratio:.4f}"
 )

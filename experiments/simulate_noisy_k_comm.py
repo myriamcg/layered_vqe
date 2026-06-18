@@ -1,5 +1,10 @@
 from qiskit_ibm_runtime import QiskitRuntimeService
-from l_vqe_engine import best_known_community_cost, simulate_one_lvqe_ibm
+from l_vqe_engine import (
+    best_known_community_cost,
+    simulate_one_lvqe_ibm,
+    build_k_community_hamiltonian,
+    total_qubits,
+)
 
 QiskitRuntimeService.save_account(
     token="",  # Use the 44-character API_KEY you created and saved from the IBM Quantum Platform Home dashboard
@@ -13,11 +18,6 @@ import networkx as nx
 import matplotlib.pyplot as plt
 import numpy as np
 import pennylane_qiskit.converter as c
-from l_vqe_functions import (
-    build_k_community_hamiltonian,
-    total_qubits,
-    best_known_cost,
-)
 
 CSV_PATH = "csv_files/lvqe_results_noisy_k_comm.csv"
 
@@ -65,7 +65,7 @@ if __name__ == "__main__":
         H = build_k_community_hamiltonian(G, K)
         print("done building H")
         n_q = total_qubits(n, K)
-        C_bkv = best_known_cost(G, K, max_brute_nodes=12)
+        C_bkv = best_known_community_cost(G, K, max_brute_nodes=12)
         print("best known cost:", C_bkv)
 
         res = simulate_one_lvqe_ibm(
