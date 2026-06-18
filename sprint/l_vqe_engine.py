@@ -712,7 +712,6 @@ def simulate_one_vqe_with_device(
     }
 
 
-# Add this import to the top of your engine file if it isn't there
 from pennylane import qaoa
 
 # ---------------------------------------------------------

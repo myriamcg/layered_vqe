@@ -1,34 +1,8 @@
-"""
-Plot the VQE vs L-VQE comparison for the MaxCut experiment, pulling
-per-trial approx_ratio / modularity values from
-vqe_vs_lvqe_noisy_maxcut.csv.
-
-Why this approach:
-- vqe_vs_lvqe_noisy_maxcut.csv is opened in "a" (append) mode in your
-  script, so it accumulates 20 rows (10 trials x 2 methods) PER RUN of
-  the whole experiment. Your file has 64 rows total, meaning it holds
-  leftover rows from earlier/partial runs plus your most recent run.
-  We select the LAST 20 rows (10 trials x 2 methods), since that is
-  always your most recent full run. This was verified against your
-  reported summary line (LVQE rho: -0.9343 +/- 0.0596, VQE rho:
-  -0.9284 +/- 0.0163) -- the last 20 rows reproduce those numbers
-  exactly.
-- Unlike the L-VQE / VQE single-run scripts, this CSV has NO per-step
-  cost history at all -- simulate_one_vqe_with_device /
-  simulate_one_lvqe_with_device's cost_history lists are never written
-  to disk in your trial loop, only the final scalar per trial is saved.
-  So there's nothing to plot as a convergence trace here; the natural
-  per-trial granularity is one point per trial per method, which is
-  what's plotted below (paired dot/line plot + mean +/- std summary),
-  matching the same "extract exactly the relevant rows, plot honestly,
-  annotate with real summary stats" spirit as the other two scripts.
-"""
-
 import csv
 import numpy as np
 import matplotlib.pyplot as plt
 
-SUMMARY_CSV = "vqe_vs_lvqe_noisy_maxcut.csv"
+SUMMARY_CSV = "csv_files/vqe_vs_lvqe_noisy_maxcut.csv"
 N_TRIALS = 10  # trials per method in the run of interest (N_SEEDS in your script)
 
 # ---- 1. Load CSV and select the most recent full run (last N_TRIALS*2 rows) ----

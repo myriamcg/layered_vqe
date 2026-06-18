@@ -19,7 +19,7 @@ from l_vqe_functions import (
     best_known_cost,
 )
 
-CSV_PATH = "lvqe_results_noisy_k_comm.csv"
+CSV_PATH = "csv_files/lvqe_results_noisy_k_comm.csv"
 
 K = 4
 MAX_LAYERS = 2

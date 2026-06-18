@@ -240,40 +240,42 @@ def simulate_one_lvqe(
         "final_params": flat_params,
     }
 
+
 def _smo_optimize(
-        cost_fn: Callable[[np.ndarray], float],
-        params: np.ndarray,
-        max_iter_per_layer: int,
-        re_estimate_interval: int) -> np.ndarray:
-    
+    cost_fn: Callable[[np.ndarray], float],
+    params: np.ndarray,
+    max_iter_per_layer: int,
+    re_estimate_interval: int,
+) -> np.ndarray:
+
     params = params.copy()
     J = len(params)
     step = 0
- 
+
     for _ in range(max_iter_per_layer):
         for j in range(J):
             theta_j = params[j]
- 
+
             L0 = cost_fn(params)
- 
+
             params[j] = theta_j + np.pi / 2
             L_plus = cost_fn(params)
- 
+
             params[j] = theta_j - np.pi / 2
             L_minus = cost_fn(params)
- 
+
             diff_pm = L_plus - L_minus
-            diff_0  = 2 * L0 - L_plus - L_minus
- 
+            diff_0 = 2 * L0 - L_plus - L_minus
+
             # a1 = 0.5 * np.sqrt(diff_pm ** 2 + diff_0 ** 2)
             a2 = theta_j - np.arctan2(diff_0, diff_pm)
- 
+
             theta_new = (a2 + np.pi) % (2 * np.pi)
             params[j] = theta_new
- 
+
             step += 1
- 
+
             if step % re_estimate_interval == 0:
                 _ = cost_fn(params)
- 
+
     return params

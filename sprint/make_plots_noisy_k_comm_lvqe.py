@@ -1,41 +1,14 @@
-"""
-Plot the noisy L-VQE convergence trace for the run of interest
-(max_iter_layer = 200), pulling the cost history from
-lvqe_noisy_k_comm.csv and the matching summary stats from
-lvqe_noisy_results.csv.
-
-Why this approach:
-- lvqe_noisy_results.csv is opened in "a" (append) mode in your script,
-  so it accumulates one summary row per run you've ever executed.
-  Your file has 3 rows -> 3 separate runs. We select the row matching
-  max_iter_layer == 200 (your run of interest).
-- lvqe_noisy_k_comm.csv is opened in "w" (overwrite) mode, so it ALWAYS
-  only contains the cost history of the most recently executed run.
-  Since your most recent run was the max_iter_layer=200 one, this file
-  is already exactly what you want -- no filtering needed there.
-- The cost_history list is appended to continuously across layers
-  inside simulate_one_lvqe_with_device, and no layer-boundary marker
-  is ever written to disk. That means it is NOT possible to recover
-  exactly where layer 0 ends and layer 1 begins from this CSV alone.
-  The script marks this honestly rather than guessing a split.
-"""
-
 import csv
 import matplotlib.pyplot as plt
 
-HISTORY_CSV = "lvqe_noisy_k_comm.csv"  # your local file is named lvqe_noisy_k_comm.csv
-SUMMARY_CSV = "lvqe_noisy_results.csv"
+HISTORY_CSV = (
+    "csv_files/lvqe_noisy_k_comm.csv"  # your local file is named lvqe_noisy_k_comm.csv
+)
+SUMMARY_CSV = "csv_files/lvqe_noisy_results.csv"
 TARGET_MAX_ITER_LAYER = 200  # the run you actually care about
 
-# Intended per-layer iteration caps, in order (layer 0, layer 1, layer 2, ...).
-# These are the values YOU passed to the optimizer, not something recovered
-# from the CSV -- COBYLA can call the cost function more or less than this
-# many times per layer (extra calls for constraint handling / line search,
-# or fewer if it converges early), so treat the resulting boundaries as
-# approximate, intended cutoffs rather than verified ground truth.
 LAYER_ITER_CAPS = [200, 200]  # layer 0, layer 1 -- layer 2 gets "whatever's left"
 
-# ---- 1. Load the full cost history (already single-run, since file is overwritten each time) ----
 steps, costs = [], []
 with open(HISTORY_CSV, "r", newline="") as f:
     reader = csv.DictReader(f)
@@ -45,7 +18,6 @@ with open(HISTORY_CSV, "r", newline="") as f:
 
 print(f"Loaded {len(costs)} cost-history points from {HISTORY_CSV}")
 
-# ---- 2. Load summary CSV and pick the row matching the run of interest ----
 with open(SUMMARY_CSV, "r", newline="") as f:
     reader = csv.DictReader(f)
     rows = list(reader)
@@ -70,13 +42,10 @@ shots = run["shots"]
 
 print("Selected summary row:", run)
 
-# ---- 2b. Compute intended layer boundaries ----
-# boundaries[i] = step index where layer i is assumed to START
 n_total = len(costs)
 boundaries = [0]
 for cap in LAYER_ITER_CAPS:
     boundaries.append(boundaries[-1] + cap)
-# anything left over belongs to the final layer; clip in case caps overshoot n_total
 boundaries = [min(b, n_total) for b in boundaries]
 n_layers_total = len(LAYER_ITER_CAPS) + 1
 print(
@@ -95,7 +64,6 @@ ax.plot(
     label="cost history (per evaluation)",
 )
 
-# Light rolling average to make the trend easier to read through shot noise
 window = 15
 if len(costs) >= window:
     roll = [
@@ -113,19 +81,9 @@ ax.axhline(
     lw=1,
     label=f"true_baseline = {true_baseline:.4f}",
 )
-# ax.axhline(
-#     final_cost,
-#     color="#c53030",
-#     ls=":",
-#     lw=1.5,
-#     label=f"reported final_cost = {-final_cost:.4f}",
-# )
 
-# Intended layer boundaries (approximate -- see note in module docstring)
-for b in boundaries[
-    1:
-]:  # skip step 0 (start of layer 0); every other entry is a real transition
-    if b < n_total:  # don't draw a line exactly at/after the last data point
+for b in boundaries[1:]:
+    if b < n_total:
         ax.axvline(b, color="darkorange", ls="--", lw=1.3, alpha=0.8)
 
 ymin, ymax = ax.get_ylim()
@@ -160,8 +118,8 @@ ax.grid(alpha=0.25)
 textstr = (
     f"true_baseline = {true_baseline:.4f}\n"
     # f"final_cost = {final_cost:.4f}\n"
-    f"noisy_modularity = {0.467188:.4f}\n"
-    f"approx_ratio_rho = {0.6229:.4f}"  # correct values from csv file to avoid bug in recomputing the final cost instead of taking the cost of layer 2
+    f"noisy_modularity = {noisy_mod:.4f}\n"
+    f"approx_ratio_rho = {approx_ratio:.4f}"
 )
 ax.text(
     0.02,

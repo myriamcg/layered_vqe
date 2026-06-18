@@ -1,36 +1,8 @@
-"""
-Plot the noisy VQE convergence trace, pulling the cost history from
-vqe_noisy_k_comm.csv and the matching summary stats from
-vqe_noisy_results_k_comm.csv.
-
-Why this approach:
-- vqe_noisy_results_k_comm.csv is opened in "a" (append) mode in your
-  script, so it accumulates one summary row per run you've ever executed.
-  Your file has 4 rows -> 4 separate runs. Unlike the L-VQE summary CSV,
-  the "max_iter_layer" column here is STALE: you ran max_evals=800 for
-  the run you care about, but the CSV column still says 500 (it looks
-  like the variable feeding that column wasn't updated to match the
-  actual max_evals passed in). So we can't filter on that column.
-- Instead we select the run by matching the final_cost you reported
-  (-0.076563, confirmed by your printed "Modularity: 0.076563" and
-  "Approximation rho: 0.1021"), which uniquely identifies the row.
-  If you ever can't match by final_cost, the script falls back to the
-  LAST row, since vqe_noisy_results_k_comm.csv is append-only and your
-  most recent run is therefore always the last row.
-- vqe_noisy_k_comm.csv is opened in "w" (overwrite) mode, so it ALWAYS
-  only contains the cost history of the most recently executed run --
-  no filtering needed there, same as the L-VQE history file.
-- simulate_one_vqe_with_device has NO layer-expansion loop (n_layers=2
-  is fixed from the start and optimized in a single COBYLA call), so
-  there are no layer boundaries to mark on this plot -- that concept
-  only applies to the L-VQE engine.
-"""
-
 import csv
 import matplotlib.pyplot as plt
 
-HISTORY_CSV = "vqe_noisy_k_comm.csv"
-SUMMARY_CSV = "vqe_noisy_results_k_comm.csv"
+HISTORY_CSV = "csv_files/vqe_noisy_k_comm.csv"
+SUMMARY_CSV = "csv_files/vqe_noisy_results_k_comm.csv"
 TARGET_FINAL_COST = (
     -0.076563
 )  # from your printed "Final VQE Cost" -- identifies the run
