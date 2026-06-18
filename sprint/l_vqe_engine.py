@@ -368,10 +368,7 @@ def simulate_one_vqe(
 def simulate_one_lvqe_with_device(
     n_q, H, max_layers, shots, max_iter_per_layer, rng, optimizer="COBYLA", dev=None
 ):
-    """
-    Identical to simulate_one_lvqe but accepts an externally built device.
-    Useful for injecting Aer noise models without touching the core engine.
-    """
+
     if dev is None:
         dev = qml.device("lightning.qubit", wires=n_q, shots=shots)
 
@@ -496,7 +493,6 @@ def simulate_one_vqe_with_device(
     dev,  # pre-built noisy device
     optimizer: str = "COBYLA",
 ) -> dict:
-    """VQE variant that accepts a pre-built device (mirrors lvqe wrapper)."""
 
     @qml.qnode(dev)
     def cost_fn(flat_params):
